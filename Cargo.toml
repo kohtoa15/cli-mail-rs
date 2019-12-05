@@ -1,0 +1,18 @@
+[package]
+name = "cli-mail-rs"
+version = "0.1.0"
+authors = ["kohtoa15 <kohtoa15@htlkaindorf.at>"]
+edition = "2018"
+
+[dependencies]
+openssl = "0.9.13"
+new-tokio-smtp = "0.8.1"
+pop3 = "1.0.6"
+clitc = { git = "https://github.com/kohtoa15/clitc"}
+serde = "1.0"
+serde_yaml = "0.8"
+console = "0.9.1"
+imap = "1.0.2"
+native-tls = "0.2"
+base64 = "0.11.0"
+datetime = "0.4.7"
