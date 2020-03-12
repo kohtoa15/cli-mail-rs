@@ -9,10 +9,10 @@ use std::{
 use super::account::{
     Account,
 };
-use super::mail::{
+use super::receiving::{
     InboxAdapter,
-    MailProxy,
-    MailHeader,
+    ReceivedMailProxy,
+    ReceivedMail,
 };
 
 use datetime::{
@@ -135,7 +135,7 @@ impl Mail {
 }
 
 pub struct Inbox {
-    mails: Vec<(MailProxy, bool)>,
+    mails: Vec<(ReceivedMailProxy, bool)>,
     account: Account,
     opened_mail: Option<usize>,
     input: Option<InboxAdapter>,
@@ -172,7 +172,7 @@ impl Inbox {
             println!("Loading with Adapter ...");
             if let Some(vec) = adapter.load_inbox() {
                 println!("Load inbox successful ...");
-                let mut loaded: Vec<(MailProxy, bool)> = vec.into_iter().map(|x| (MailProxy::from_header(x), true)).collect();
+                let mut loaded: Vec<(ReceivedMailProxy, bool)> = vec.into_iter().map(|x| (ReceivedMailProxy::from_header(x), true)).collect();
                 num += loaded.len();
                 self.mails.append(&mut loaded);
             }
@@ -198,7 +198,7 @@ impl Inbox {
     }
 
     pub fn show_unread(&self, named: bool) {
-        let unread: Vec<&MailProxy> = self.mails.iter().filter(|(_, unread)| *unread).map(|(m, _)| m).collect();
+        let unread: Vec<&ReceivedMailProxy> = self.mails.iter().filter(|(_, unread)| *unread).map(|(m, _)| m).collect();
         if unread.is_empty() {
             println!("No unread mails in inbox!");
         } else {
@@ -233,7 +233,7 @@ impl Inbox {
         }
     }
 
-    pub fn get_opened_mail(&mut self) -> Option<&Mail> {
+    pub fn get_opened_mail(&mut self) -> Option<&ReceivedMail> {
         let opened_mail = self.opened_mail.clone();
         return if let Some(ident) = opened_mail {
             match &mut self.input {

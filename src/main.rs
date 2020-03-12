@@ -2,10 +2,11 @@ extern crate pop3;
 extern crate openssl;
 extern crate clitc;
 extern crate console;
+extern crate mime;
 
 mod inbox;
 mod account;
-mod mail;
+mod receiving;
 mod util;
 mod decoder;
 
@@ -24,11 +25,8 @@ use std::{
 use clitc::{
     events::{Event, EventHandler, WhitespaceSplitter},
     params::{CliParameters},
-    clitc_error::*,
 };
 use inbox::{
-    Mail,
-    Inbox,
     InboxManager,
     MailBuilder,
 };
@@ -217,12 +215,11 @@ fn init_modes() -> (Arc<Mutex<Option<Emitter>>>, HashMap<Mode, HashMap<String, E
                 let mut context = ctx_handle.lock().unwrap();
                 if let Some(inbox) = context.get_opened_inbox() {
                     let name = inbox.get_account_name();
-                    if let Some(mail) = inbox.get_opened_mail().clone() {
-                        let about = format!("Re: {}", mail.subject.clone());
-                        let mut reply = MailBuilder::new();
-                        reply.from(name).to(vec![mail.from.clone()]).subject(about.clone());
+                    if let Some(recv_mail) = inbox.get_opened_mail().clone() {
+                        // Craft reply MailBuilder
+                        let reply = recv_mail.create_reply();
                         context.current_mail_writing = Some(reply);
-                        prompt_path = Some(String::from(about));
+                        prompt_path = Some(name);
                     }
                 }
             }

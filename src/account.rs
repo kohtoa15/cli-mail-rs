@@ -14,18 +14,8 @@ use serde::{
     Serialize,
     Serializer,
 };
-use pop3::{
-    POP3Stream,
-};
-use openssl::{
-    ssl::{SslConnectorBuilder, SslMethod},
-};
-
 use super::{
-    mail::{
-        MailInbox,
-        Pop3Account,
-        ImapAccount,
+    receiving::{
         InboxAdapter,
     }
 };

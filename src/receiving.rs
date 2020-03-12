@@ -34,44 +34,51 @@ use datetime::{
     OffsetDateTime,
 };
 
-use super::inbox::{
-    Mail,
-    MailBuilder,
+use mime::{
+    Mime,
+    Name as MimeName,
+    Params as MimeParams,
 };
+
 use super::account::{
     InboxConfig,
 };
+use super::inbox::MailBuilder;
 use super::util;
 use super::decoder;
+use super::mime;
 
-
-pub struct MailProxy {
-    header: MailHeader,
-    mail: Option<Mail>,
+pub struct ReceivedMailProxy {
+    header: Option<Box<ReceivedMailHeader>>,
+    mail: Option<Box<ReceivedMail>>,
 }
 
-impl MailProxy {
-    pub fn from_header(header: MailHeader) -> MailProxy {
-        MailProxy {
-            header,
+impl ReceivedMailProxy {
+    pub fn from_header(header: ReceivedMailHeader) -> ReceivedMailProxy {
+        ReceivedMailProxy {
+            header: Some(Box::new(header)),
             mail: None,
         }
     }
 
     pub fn get_info(&self) -> String {
-        return if let Some(mail) = &self.mail {
-            mail.get_info()
-        } else {
-            self.header.get_info()
+        let mut ret = String::new();
+        if let Some(mail) = &self.mail {
+            ret = mail.get_info()
+        }else if let Some(header) = &self.header {
+            ret = header.get_info()
         }
+        return ret;
     }
 
-    pub fn get_mail(&mut self, adapter: &mut InboxAdapter) -> Option<&Mail> {
-        // Check if Mail has already been loaded
+    pub fn get_mail(&mut self, adapter: &mut InboxAdapter) -> Option<&ReceivedMail> {
+        // Check if ReceivedMail has already been loaded
         if let None = &self.mail {
-            // Load Mail
-            println!("Mail must be loaded!");
-            self.mail = adapter.get_mail(&self.header);
+            // Load ReceivedMail
+            println!("ReceivedMail must be loaded!");
+            if let Some(header) = &self.header {
+                self.mail = adapter.get_mail(header).map(|m| Box::new(m));
+            }
         }
         // If loading was successful, return mail
         return if let Some(mail) = &self.mail {
@@ -83,27 +90,27 @@ impl MailProxy {
     }
 }
 
-impl Eq for MailProxy {}
+impl Eq for ReceivedMailProxy {}
 
-impl PartialEq for MailProxy {
-    fn eq(&self, other: &MailProxy) -> bool {
+impl PartialEq for ReceivedMailProxy {
+    fn eq(&self, other: &ReceivedMailProxy) -> bool {
         self.header == other.header
     }
 }
 
-impl PartialOrd for MailProxy {
-    fn partial_cmp(&self, other: &MailProxy) -> Option<Ordering> {
+impl PartialOrd for ReceivedMailProxy {
+    fn partial_cmp(&self, other: &ReceivedMailProxy) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for MailProxy {
-    fn cmp(&self, other: &MailProxy) -> Ordering {
+impl Ord for ReceivedMailProxy {
+    fn cmp(&self, other: &ReceivedMailProxy) -> Ordering {
         self.header.cmp(&other.header)
     }
 }
 
-pub struct MailHeader {
+pub struct ReceivedMailHeader {
     id: u32,
     to: String,
     from: String,
@@ -111,22 +118,22 @@ pub struct MailHeader {
     subject: String,
 }
 
-impl Eq for MailHeader {}
+impl Eq for ReceivedMailHeader {}
 
-impl PartialEq for MailHeader {
-    fn eq(&self, other: &MailHeader) -> bool {
+impl PartialEq for ReceivedMailHeader {
+    fn eq(&self, other: &ReceivedMailHeader) -> bool {
         self.id == other.id
     }
 }
 
-impl PartialOrd for MailHeader {
-    fn partial_cmp(&self, other: &MailHeader) -> Option<Ordering> {
+impl PartialOrd for ReceivedMailHeader {
+    fn partial_cmp(&self, other: &ReceivedMailHeader) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for MailHeader {
-    fn cmp(&self, other: &MailHeader) -> Ordering {
+impl Ord for ReceivedMailHeader {
+    fn cmp(&self, other: &ReceivedMailHeader) -> Ordering {
         match (self.date, other.date) {
             (Some(own_date), Some(other_date)) => util::compare_date(&own_date, &other_date),
             (Some(date), _) => Ordering::Greater,
@@ -136,8 +143,8 @@ impl Ord for MailHeader {
     }
 }
 
-impl MailHeader {
-    pub fn new(id: u32, map: HashMap<String, String>) -> MailHeader {
+impl ReceivedMailHeader {
+    pub fn new(id: u32, map: HashMap<String, String>) -> ReceivedMailHeader {
         let to = map.get(&String::from("To")).map(|x| x.clone()).unwrap_or(String::from("<to>"));
         let from = map.get(&String::from("From")).map(|x| x.clone()).unwrap_or(String::from("<from>"));
         let date = match map.get(&String::from("Date")) {
@@ -150,30 +157,89 @@ impl MailHeader {
         let raw = map.get(&String::from("Subject")).map(|x| x.clone().replace("\n", "").replace("\r", "")).unwrap_or(String::from("<subject>"));
         let subject = decoder::decode(raw);
 
-        MailHeader {
+        ReceivedMailHeader {
             id, to, from, date, subject
         }
     }
 
-    pub fn from_fetch(seq: u32, fetch: ZeroCopy<Vec<Fetch>>) -> MailHeader {
+    pub fn from_fetch(seq: u32, fetch: ZeroCopy<Vec<Fetch>>) -> ReceivedMailHeader {
         let result = fetch.iter().next().unwrap();
         let content = result.header().map(|x| String::from_utf8(x.to_vec()).unwrap()).unwrap_or(String::new());
         let map = extract_mapping(content.clone());
-        MailHeader::new(seq, map)
-    }
-
-    pub fn to_mail(&self) -> MailBuilder {
-        let mut builder = MailBuilder::new();
-        if let Some(date) = self.date {
-            builder.date(date);
-        }
-        builder.from(self.from.clone()).subject(self.subject.clone()).to(vec![self.to.clone()]);
-        return builder;
+        ReceivedMailHeader::new(seq, map)
     }
 
     pub fn get_info(&self) -> String {
-        format!("{} |  {} |  {}", util::fit_string_to_size(&self.date.map(|x| util::format_date(&x)).unwrap_or(String::from("<date>")), 20), util::fit_string_to_size(&self.from, 60), util::fit_string_to_size(&self.subject, 100))
+        display_info_from(&self.date, &self.from, &self.subject)
     }
+}
+
+#[derive(Clone)]
+pub enum AddressAlias {
+    WithAlias(String, String),
+    OnlyAddress(String),
+}
+
+impl AddressAlias {
+    pub fn to_string(&self) -> String {
+        match self {
+            Self::WithAlias(alias, addr) => format!("\"{}\" <{}>", alias, addr),
+            Self::OnlyAddress(addr) => addr.clone(),
+        }
+    }
+
+    pub fn get_address(&self) -> String {
+        match self {
+            Self::WithAlias(_, addr) => addr.clone(),
+            Self::OnlyAddress(addr) => addr.clone(),
+        }
+    }
+}
+
+pub struct ReceivedMail {
+    date: Option<OffsetDateTime>,
+    from: AddressAlias,
+    to: AddressAlias,
+    cc: Vec<AddressAlias>,
+    bcc: Vec<AddressAlias>,
+    subject: String,
+    text: String,
+    html: String,
+    attachments: Vec<String>,
+}
+
+impl ReceivedMail {
+    pub fn from_mime(mime: &Mime) -> Option<ReceivedMail>
+    {
+        None
+    }
+
+    pub fn new_plain(date: Option<OffsetDateTime>, from: AddressAlias, to: AddressAlias, subject: String, text: String) -> ReceivedMail {
+        ReceivedMail {
+            date, from, to, cc: Vec::new(), bcc: Vec::new(), subject, text, html: String::new(), attachments: Vec::new(),
+        }
+    }
+
+    pub fn get_info(&self) -> String {
+        display_info_from(&self.date, &self.from.to_string(), &self.subject)
+    }
+
+    pub fn print_all(&self) {
+        println!("Output not yet implemented!");
+    }
+
+    pub fn create_reply(&self) -> MailBuilder {
+        let mut builder = MailBuilder::new();
+        builder.to(vec![self.from.get_address()])
+            .from(self.to.get_address())
+            .subject(format!("Re: {}", self.subject.as_str()));
+
+        return builder;
+    }
+}
+
+fn display_info_from(date: &Option<OffsetDateTime>, from: &String, subject: &String) -> String {
+    format!("{} |  {} |  {}", util::fit_string_to_size(&date.map(|x| util::format_date(&x)).unwrap_or(String::from("<date>")), 20), util::fit_string_to_size(from, 60), util::fit_string_to_size(subject, 100))
 }
 
 pub enum InboxAdapter {
@@ -202,14 +268,14 @@ impl InboxAdapter {
         }
     }
 
-    pub fn load_inbox(&mut self) -> Option<Vec<MailHeader>> {
+    pub fn load_inbox(&mut self) -> Option<Vec<ReceivedMailHeader>> {
         match self {
             InboxAdapter::Pop3(pop3) => pop3.load_inbox(),
             InboxAdapter::Imap(imap) => imap.load_inbox(),
         }
     }
 
-    pub fn get_mail(&mut self, header: &MailHeader) -> Option<Mail> {
+    pub fn get_mail(&mut self, header: &ReceivedMailHeader) -> Option<ReceivedMail> {
         match self {
             InboxAdapter::Pop3(pop3) => pop3.get_mail(header),
             InboxAdapter::Imap(imap) => imap.get_mail(header),
@@ -222,9 +288,9 @@ pub trait MailInbox {
 
     fn login(&mut self, username: &String, password: &String) -> bool;
 
-    fn load_inbox(&mut self) -> Option<Vec<MailHeader>>;
+    fn load_inbox(&mut self) -> Option<Vec<ReceivedMailHeader>>;
 
-    fn get_mail(&mut self, header: &MailHeader) -> Option<Mail>;
+    fn get_mail(&mut self, header: &ReceivedMailHeader) -> Option<ReceivedMail>;
 }
 
 pub struct Pop3Account {
@@ -248,22 +314,22 @@ impl MailInbox for Pop3Account {
         success
     }
 
-    fn load_inbox(&mut self) -> Option<Vec<MailHeader>> {
+    fn load_inbox(&mut self) -> Option<Vec<ReceivedMailHeader>> {
         let mut ret = None;
         if self.stream.is_authenticated {
             ret = match self.stream.uidl(None) {
-                POP3Result::POP3Uidl{ emails_metadata } => Some(emails_metadata.iter().map(|x| MailHeader::new(x.message_id as u32, HashMap::new())).collect()),
+                POP3Result::POP3Uidl{ emails_metadata } => Some(emails_metadata.iter().map(|x| ReceivedMailHeader::new(x.message_id as u32, HashMap::new())).collect()),
                 _ => None,
             }
         }
         return ret;
     }
 
-    fn get_mail(&mut self, header: &MailHeader) -> Option<Mail> {
+    fn get_mail(&mut self, header: &ReceivedMailHeader) -> Option<ReceivedMail> {
         let mut ret = None;
         if self.stream.is_authenticated {
             match self.stream.retr(header.id as i32) {
-                // ToDo: Convert raw msg to Mail ??
+                // ToDo: Convert raw msg to ReceivedMail ??
                 POP3Result::POP3Message{ raw } => {},
                 _ => {}
             };
@@ -325,7 +391,7 @@ impl MailInbox for ImapAccount {
         self.imap.is_session()
     }
 
-    fn load_inbox(&mut self) -> Option<Vec<MailHeader>> {
+    fn load_inbox(&mut self) -> Option<Vec<ReceivedMailHeader>> {
         if let ImapConnection::Session(session) = &mut self.imap {
             // Select Inbox
             return match session.select("INBOX") {
@@ -355,7 +421,7 @@ impl MailInbox for ImapAccount {
                     let mut ret = Vec::new();
                     for (seq, _) in mails.into_iter() {
                         match session.fetch(format!("{}", seq).as_str(), "BODY.PEEK[HEADER]") {
-                            Ok(res) => ret.push(MailHeader::from_fetch(seq, res)),
+                            Ok(res) => ret.push(ReceivedMailHeader::from_fetch(seq, res)),
                             Err(e) => {
                                 println!("Could not fetch mail: [{}]", e);
                                 return None;
@@ -370,7 +436,7 @@ impl MailInbox for ImapAccount {
         None
     }
 
-    fn get_mail(&mut self, header: &MailHeader) -> Option<Mail> {
+    fn get_mail(&mut self, header: &ReceivedMailHeader) -> Option<ReceivedMail> {
         if let ImapConnection::Session(session) = &mut self.imap {
             // Select Inbox
             println!("Session open!");
@@ -381,27 +447,31 @@ impl MailInbox for ImapAccount {
                     match session.fetch(format!("{}", header.id).as_str(), "BODY[TEXT]") {
                         Ok(res) => {
                             println!("Fetched mail!");
-                            let mut builder = header.to_mail();
                             // Append Text
                             if let Some(fetch) = res.get(0) {
                                 println!("Got fetch!");
                                 if let Some(bytes) = fetch.text() {
                                     println!("Got text!");
-                                    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                                        println!("Parsed text!");
-                                        builder.text(text);
+                                    // ToDo: Decode bytes in MIME to valid mail
+                                    let content = String::from_utf8(bytes.to_vec()).unwrap();
+
+                                    match content.as_str().parse::<Mime>(){
+                                        Ok(res) => {
+                                            println!("MIME Type {}/{}", res.type_().as_str(), res.subtype().as_str());
+                                            for (a, b) in res.params()
+                                            {
+                                                println!("KEY {}", a.as_str());
+                                            }
+                                        },
+                                        Err(e) => {
+                                            println!("Not a MIME message!");
+                                            println!("{}", content.as_str());
+                                        }
                                     }
                                 }
                             }
-                            // Build mail
-                            println!("Building mail ...");
-                            match builder.build() {
-                                Ok(mail) => Some(mail),
-                                Err((_, field)) => {
-                                    println!("Could not build mail: [missing field: {}]", field);
-                                    None
-                                }
-                            }
+                            // ToDo: Change to Some(ReceivedMail)
+                            None
                         },
                         Err(e) => {
                             println!("Could not fetch mail: [{}]", e);
